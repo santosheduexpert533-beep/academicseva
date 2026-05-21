@@ -1,65 +1,317 @@
-import Image from "next/image";
+'use client';
+
+import { useEffect, useState } from 'react';
+import Script from 'next/script';
+
+declare global {
+  interface Window {
+    Razorpay: new (options: RazorpayOptions) => RazorpayInstance;
+  }
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: RazorpayResponse) => void;
+  prefill?: { email?: string; contact?: string };
+  theme?: { color?: string };
+}
+
+interface RazorpayInstance {
+  open: () => void;
+}
+
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+  const [email, setEmail] = useState('');
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const openPayment = async (userEmail: string) => {
+    setStatus('loading');
+    setErrorMessage('');
+
+    try {
+      const orderResponse = await fetch('/api/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 19900, currency: 'INR', email: userEmail }),
+      });
+
+      if (!orderResponse.ok) throw new Error('Failed to create order');
+      const { orderId } = await orderResponse.json();
+
+      const rzp = new window.Razorpay({
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
+        amount: 19900,
+        currency: 'INR',
+        name: 'Academic Seva',
+        description: 'Urgent Student Needs — Donation',
+        order_id: orderId,
+        handler: async (response: RazorpayResponse) => {
+          try {
+            const verifyResponse = await fetch('/api/verify-payment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...response, email: userEmail }),
+            });
+            const result = await verifyResponse.json();
+            if (result.success) {
+              setStatus('success');
+            } else {
+              setErrorMessage('Payment verification failed. Please contact support.');
+              setStatus('error');
+            }
+          } catch {
+            setErrorMessage('Could not verify payment. Please contact support with your payment ID.');
+            setStatus('error');
+          }
+        },
+        prefill: { email: userEmail },
+        theme: { color: '#D97706' },
+      });
+
+      rzp.open();
+      setStatus('idle');
+      setShowEmailModal(false);
+    } catch {
+      setErrorMessage('Something went wrong. Please try again.');
+      setStatus('error');
+    }
+  };
+
+  const handleDonateClick = () => {
+    if (email && email.includes('@')) {
+      openPayment(email);
+    } else {
+      setShowEmailModal(true);
+    }
+  };
+
+  const handleEmailSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !email.includes('@')) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+    setErrorMessage('');
+    openPayment(email);
+  };
+
+  if (status === 'success') {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
+        <div className="text-center max-w-md">
+          <span className="material-symbols-outlined text-hope-amber text-6xl mb-6">favorite</span>
+          <h1 className="font-headline-lg text-headline-lg text-slate-deep mb-4 leading-tight">
+            Thank You for Your Kindness
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="font-body-md text-body-md text-on-surface-variant mb-6">
+            Your contribution of ₹199 will directly help a student in need. A confirmation has been sent to <strong>{email}</strong>.
+          </p>
+          <p className="text-sm text-outline">
+            Check your inbox for details. Every act of giving creates ripples of change.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+
+      {/* Email Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-gutter">
+          <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-xl border border-outline-variant">
+            <h3 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Your Email</h3>
+            <p className="font-body-md text-body-md text-on-surface-variant mb-6">
+              We&apos;ll send a donation receipt to your email address.
+            </p>
+            <form onSubmit={handleEmailSubmit}>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errorMessage) setErrorMessage('');
+                }}
+                className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-3"
+                autoFocus
+              />
+              {errorMessage && (
+                <p className="text-error text-sm mb-3">{errorMessage}</p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowEmailModal(false); setErrorMessage(''); }}
+                  className="flex-1 py-3 px-4 border border-outline-variant text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={status === 'loading'}
+                  className="flex-1 py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {status === 'loading' ? 'Processing...' : 'Donate ₹199'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* === YOUR EXACT HTML BELOW === */}
+      <header className="bg-white sticky top-0 z-50 border-b border-outline-variant flex justify-between items-center w-full px-gutter h-16 shadow-sm">
+        <div className="flex items-center">
+          <img alt="Academic Seva" className="h-6 md:h-8 object-contain" src="/images/logo.png" />
+        </div>
+        <div className="flex gap-4">
+          <a className="font-label-caps text-[10px] text-primary font-bold hover:text-hope-amber transition-colors self-center" href="#needs">Urgent Needs</a>
+          <a className="bg-hope-amber text-white font-label-caps text-[10px] py-2 px-4 uppercase tracking-wider" href="#needs">Provide Help</a>
+        </div>
+      </header>
+
+      <main className="pb-20">
+        {/* Hero Section */}
+        <section className="relative h-[70vh] flex items-end justify-center overflow-hidden">
+          <div className="absolute inset-0 z-0">
+            <img alt="Students in urgent need" className="w-full h-full object-cover grayscale-[30%] brightness-75" src="/images/hero.jpg" />
+            <div className="absolute inset-0 hero-gradient"></div>
+          </div>
+          <div className="relative z-10 w-full max-w-container-max px-gutter pb-stack-lg text-white text-center">
+            <h1 className="font-headline-lg-mobile md:font-headline-xl text-headline-lg-mobile md:text-headline-xl mb-4 leading-tight">Urgent Student Needs.</h1>
+            <p className="font-body-md text-body-md mb-8 text-primary-fixed opacity-90 max-w-lg mx-auto uppercase tracking-widest font-bold">A childhood is being lost right now. Help provide the essentials for ₹199.</p>
+            <a className="inline-block bg-hope-amber text-white font-label-caps text-label-caps py-4 px-10 tracking-[0.2em] uppercase transition-all duration-500 hover:shadow-xl active:opacity-80" href="#needs">Provide Help</a>
+          </div>
+        </section>
+
+        {/* Needs Listing Section */}
+        <section className="py-12 px-gutter bg-surface-warm" id="needs">
+          <div className="max-w-container-max mx-auto">
+            <div className="text-center mb-12">
+              <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-4">Urgent Needs Directory</h2>
+              <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl mx-auto">Select a specific area to direct your support. Every contribution of ₹199 makes a specific, life-changing difference for a family or student.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Need Item: Tuition & Books */}
+              <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-outline-variant flex flex-col">
+                <img alt="Student Tuition &amp; Books" className="w-full h-56 object-cover grayscale-[20%]" src="/images/tuition.jpg" />
+                <div className="p-6 flex-grow flex flex-col">
+                  <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Education</span>
+                  <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Student Tuition &amp; Books</h3>
+                  <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">For thousands of children, a pencil isn&apos;t a choice; it&apos;s daily survival. When you can&apos;t afford books, dreaming of the future is impossible. Your ₹199 provides essential learning materials.</p>
+                  <button onClick={handleDonateClick} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer">Support This Child</button>
+                </div>
+              </div>
+              {/* Need Item: Family Nutrition */}
+              <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-outline-variant flex flex-col">
+                <img alt="Family Nutrition Kit" className="w-full h-56 object-cover grayscale-[10%]" src="/images/nutrition.jpg" />
+                <div className="p-6 flex-grow flex flex-col">
+                  <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Survival</span>
+                  <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Family Nutrition Kit</h3>
+                  <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Hunger doesn&apos;t wait. Provide a vulnerable family with the basic nutrition they need to survive, ensuring children have the energy to learn and grow. Just ₹199 makes a profound difference.</p>
+                  <button onClick={handleDonateClick} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer">Provide Help</button>
+                </div>
+              </div>
+              {/* Need Item: Digital Learning */}
+              <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-outline-variant flex flex-col">
+                <img alt="Digital Learning Access" className="w-full h-56 object-cover grayscale-[20%]" src="/images/digital.jpg" />
+                <div className="p-6 flex-grow flex flex-col">
+                  <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Access</span>
+                  <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Digital Learning Access</h3>
+                  <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Bridge the widening digital divide. Give a student the crucial tools to connect to modern education and build a brighter future. ₹199 unlocks digital access for those left behind.</p>
+                  <button onClick={handleDonateClick} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer">Support This Child</button>
+                </div>
+              </div>
+              {/* Need Item: Health & Hygiene */}
+              <div className="bg-surface p-6 rounded-xl overflow-hidden shadow-sm border border-outline-variant flex flex-col justify-center text-center">
+                <span className="material-symbols-outlined text-hope-amber text-5xl mb-4">medical_services</span>
+                <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Wellbeing</span>
+                <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Health &amp; Hygiene Support</h3>
+                <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Basic hygiene and medical care are often out of reach. Protect a child&apos;s health and dignity with a vital hygiene kit. Every ₹199 ensures a safer, healthier tomorrow.</p>
+                <button onClick={handleDonateClick} className="block text-center w-full bg-hope-amber text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:brightness-110 cursor-pointer">Provide Help</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Streamlined Impact & CTA */}
+        <section className="py-12 px-gutter bg-white border-y border-outline-variant" id="donate">
+          <div className="max-w-[500px] mx-auto text-center">
+            <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-4">Will you let them wait?</h2>
+            <div className="flex justify-center gap-8 mb-10 text-on-surface-variant">
+              <div className="flex flex-col items-center">
+                <span className="material-symbols-outlined text-hope-amber mb-1">menu_book</span>
+                <span className="text-[10px] uppercase font-bold tracking-tighter">Books</span>
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="material-symbols-outlined text-hope-amber mb-1">restaurant</span>
+                <span className="text-[10px] uppercase font-bold tracking-tighter">Meals</span>
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="material-symbols-outlined text-hope-amber mb-1">backpack</span>
+                <span className="text-[10px] uppercase font-bold tracking-tighter">Tools</span>
+              </div>
+            </div>
+            <div className="bg-surface p-8 border border-outline-variant">
+              <h3 className="font-headline-lg text-[24px] text-slate-deep mb-2">Provide Urgent Help Today</h3>
+              <p className="font-body-md text-body-md text-on-surface-variant mb-6">₹199 is all it takes to bridge the gap between despair and a dream.</p>
+              <input
+                type="email"
+                placeholder="Enter your email for receipt"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); if (errorMessage) setErrorMessage(''); }}
+                className="w-full px-4 py-3.5 mb-4 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md"
+              />
+              <button
+                onClick={handleDonateClick}
+                disabled={status === 'loading'}
+                className="w-full bg-hope-amber text-white font-label-caps text-label-caps py-5 px-gutter tracking-widest uppercase transition-all duration-300 hover:brightness-110 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {status === 'loading' ? 'Processing...' : 'Support This Child Now'}
+              </button>
+              {status === 'error' && (
+                <p className="text-error text-sm mt-3">{errorMessage}</p>
+              )}
+              <p className="mt-4 font-label-caps text-[10px] text-outline uppercase tracking-tighter">Secure Help • Tax-Exempt</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="bg-primary py-12 px-gutter text-center space-y-6">
+        <img alt="Academic Seva" className="h-6 invert opacity-60 mx-auto" src="/images/logo.png" />
+        <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2">
+          <a className="font-label-caps text-[10px] text-on-tertiary-container hover:text-white transition-colors" href="#">Impact</a>
+          <a className="font-label-caps text-[10px] text-on-tertiary-container hover:text-white transition-colors" href="#">Transparency</a>
+          <a className="font-label-caps text-[10px] text-on-tertiary-container hover:text-white transition-colors" href="#">Contact</a>
+        </nav>
+        <p className="font-body-md text-[13px] text-on-primary-container max-w-md mx-auto">
+          © {new Date().getFullYear()} Academic Seva. Registered NGO.
+        </p>
+      </footer>
+
+      <div className="fixed bottom-0 left-0 right-0 z-[60] bg-white border-t border-outline-variant p-4 md:hidden flex items-center justify-between shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+        <div className="flex flex-col">
+          <span className="text-sm font-bold text-slate-deep">Every ₹199 helps a student in need.</span>
+        </div>
+        <a className="bg-hope-amber text-white font-label-caps text-[12px] py-3 px-6 uppercase tracking-wider font-bold" href="#donate">Provide Help</a>
+      </div>
+    </>
   );
 }
