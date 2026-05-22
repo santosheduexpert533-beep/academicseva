@@ -3,29 +3,34 @@ import resend from './resend';
 export async function sendConfirmationEmail(
   to: string,
   paymentId: string,
-  amount: number
+  taxExempt: boolean
 ) {
-  const driveLink = process.env.GOOGLE_DRIVE_ACCESS_LINK!;
-  const formattedAmount = (amount / 100).toFixed(2);
+  const taxSection = taxExempt
+    ? `
+      <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #D97706;">
+        <p style="margin: 0; color: #92400e; font-weight: bold;">Tax Exemption (80G)</p>
+        <p style="margin: 8px 0 0; color: #78350f; font-size: 14px;">Your donation is eligible for tax exemption under Section 80G. A separate 80G receipt will be sent to you shortly.</p>
+      </div>
+    `
+    : '';
 
   await resend.emails.send({
     from: process.env.SENDER_EMAIL!,
     to,
-    subject: 'Payment Successful - Access Your Bundle',
+    subject: 'Thank You for Your Donation — Academic Seva',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #10b981;">Payment Successful!</h1>
-        <p>Thank you for your purchase.</p>
+        <h1 style="color: #D97706;">Thank You for Your Kindness!</h1>
+        <p>Your contribution of <strong>₹199</strong> will directly help a student in need.</p>
         <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <p><strong>Payment ID:</strong> ${paymentId}</p>
-          <p><strong>Amount:</strong> ₹${formattedAmount}</p>
+          <p><strong>Amount:</strong> ₹199</p>
+          <p><strong>Donor Email:</strong> ${to}</p>
         </div>
-        <p>Click the button below to access your bundle:</p>
-        <a href="${driveLink}" style="display: inline-block; background: #10b981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0;">
-          Access Your Bundle
-        </a>
+        ${taxSection}
         <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
-          If you have any questions, reply to this email.
+          If you have any questions, simply reply to this email.<br/>
+          — Team Academic Seva
         </p>
       </div>
     `,
