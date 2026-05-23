@@ -36,12 +36,14 @@ export async function POST(request: Request) {
       const email = notes.email;
 
       if (email) {
+        const amount = Math.round((payment.amount || 0) / 100);
         await sendConfirmationEmail(
           email,
           payment.id,
           notes.taxExempt === 'true' || payment.amount > 0,
           notes.name || undefined,
-          notes.pan || undefined
+          notes.pan || undefined,
+          amount
         );
       }
     }

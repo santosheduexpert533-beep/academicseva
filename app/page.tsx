@@ -31,7 +31,7 @@ interface RazorpayResponse {
   razorpay_signature: string;
 }
 
-const AMOUNT_PAISE = Number(process.env.NEXT_PUBLIC_DONATION_AMOUNT) || 19900;
+const AMOUNT_PAISE = Number(process.env.NEXT_PUBLIC_DONATION_AMOUNT) || 100;
 const AMOUNT_RUPEES = `₹${(AMOUNT_PAISE / 100).toFixed(0)}`;
 
 export default function Home() {
@@ -106,6 +106,7 @@ export default function Home() {
           taxExempt,
           name: name.trim() || '',
           pan: pan.trim() || '',
+          amount: AMOUNT_PAISE / 100,
         }),
       });
     } catch {

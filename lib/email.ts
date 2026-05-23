@@ -6,9 +6,11 @@ export async function sendConfirmationEmail(
   paymentId: string,
   taxExempt: boolean,
   donorName?: string,
-  donorPan?: string
+  donorPan?: string,
+  amount?: number
 ) {
   const resend = getResend();
+  const donationAmount = amount || 1;
 
   let attachment;
   let taxSectionHtml: string;
@@ -18,7 +20,7 @@ export async function sendConfirmationEmail(
     const pdfBytes = await generate80GCertificate({
       donorName,
       donorPan: donorPan || '',
-      amount: 199,
+      amount: donationAmount,
       paymentId,
       certificateNumber: certNumber,
     });
@@ -55,10 +57,10 @@ export async function sendConfirmationEmail(
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #D97706;">Thank You for Your Kindness!</h1>
         ${donorName ? `<p>Dear <strong>${donorName}</strong>,</p>` : ''}
-        <p>Your contribution of <strong>₹199</strong> will directly help a student in need.</p>
+        <p>Your contribution of <strong>₹${donationAmount}</strong> will directly help a student in need.</p>
         <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <p><strong>Payment ID:</strong> ${paymentId}</p>
-          <p><strong>Amount:</strong> ₹199</p>
+          <p><strong>Amount:</strong> ₹${donationAmount}</p>
           <p><strong>Donor Email:</strong> ${to}</p>
         </div>
         ${taxSectionHtml}
