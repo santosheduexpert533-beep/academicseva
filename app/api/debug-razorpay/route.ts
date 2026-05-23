@@ -1,43 +1,48 @@
 import { NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
+import { Resend } from 'resend';
 
 export async function GET() {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const senderEmail = process.env.SENDER_EMAIL;
 
   const result: Record<string, unknown> = {
-    keySet: !!keyId && !!keySecret,
-    keyIdPrefix: keyId ? keyId.slice(0, 12) : null,
-    keySecretLength: keySecret ? keySecret.length : null,
+    razorpay: { keySet: !!keyId && !!keySecret, keyIdPrefix: keyId ? keyId.slice(0, 12) : null },
+    resend: { keySet: !!resendApiKey, senderEmail: senderEmail || 'NOT SET' },
   };
 
-  if (!keyId || !keySecret) {
-    result.error = 'Keys not set in env';
-    return NextResponse.json(result);
+  // --- Razorpay tests ---
+  if (keyId && keySecret) {
+    try {
+      const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+      const order = await razorpay.orders.create({ amount: 100, currency: 'INR', receipt: `sdk_${Date.now()}` });
+      result.razorpay = { ...result.razorpay as object, sdkTest: { ok: true, orderId: order.id } };
+    } catch (err: unknown) {
+      const e = err as { statusCode?: number; error?: { description?: string; code?: string } };
+      result.razorpay = { ...result.razorpay as object, sdkTest: { ok: false, statusCode: e?.statusCode, description: e?.error?.description, code: e?.error?.code } };
+    }
   }
 
-  // Test via Razorpay SDK
-  try {
-    const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
-    const order = await razorpay.orders.create({ amount: 100, currency: 'INR', receipt: `sdk_${Date.now()}` });
-    result.sdkTest = { ok: true, orderId: order.id };
-  } catch (err: unknown) {
-    const e = err as { statusCode?: number; error?: { description?: string; code?: string } };
-    result.sdkTest = { ok: false, statusCode: e?.statusCode, description: e?.error?.description, code: e?.error?.code };
-  }
-
-  // Test via raw fetch
-  try {
-    const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-    const res = await fetch('https://api.razorpay.com/v1/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
-      body: JSON.stringify({ amount: 100, currency: 'INR', receipt: `fetch_${Date.now()}` }),
-    });
-    const body = await res.json();
-    result.rawFetchTest = { status: res.status, ok: res.ok, body };
-  } catch (err: unknown) {
-    result.rawFetchTest = { error: String(err) };
+  // --- Resend test (send a test email to the configured sender) ---
+  if (resendApiKey && senderEmail) {
+    try {
+      const resend = new Resend(resendApiKey);
+      const emailRes = await resend.emails.send({
+        from: senderEmail,
+        to: senderEmail,
+        subject: 'Debug test — Academic Seva',
+        html: '<p>If you see this, Resend is working.</p>',
+      });
+      const emailId = (emailRes as { data?: { id?: string } })?.data?.id || 'unknown';
+      result.resend = { ...result.resend as object, testSend: { ok: true, id: emailId } };
+    } catch (err: unknown) {
+      const e = err as { statusCode?: number; message?: string; error?: unknown };
+      result.resend = { ...result.resend as object, testSend: { ok: false, error: e?.message || String(err) } };
+    }
+  } else {
+    result.resend = { ...result.resend as object, testSend: { ok: false, error: 'RESEND_API_KEY or SENDER_EMAIL not set' } };
   }
 
   return NextResponse.json(result);
