@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Script from 'next/script';
 
 declare global {
@@ -122,23 +122,7 @@ export default function Home() {
 
   // SUCCESS SCREEN
   if (status === 'success') {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
-        <div className="text-center max-w-md">
-          <span className="material-symbols-outlined text-hope-amber text-6xl mb-6">favorite</span>
-          <h1 className="font-headline-lg text-headline-lg text-slate-deep mb-4 leading-tight">
-            Thank You{name.trim() ? `, ${name.trim().split(' ')[0]}` : ''}!
-          </h1>
-          <p className="font-body-md text-body-md text-on-surface-variant mb-6">
-            Your contribution of {AMOUNT_RUPEES} will directly help a student in need.
-            {email.trim() && <> A receipt has been sent to <strong>{email}</strong>.</>}
-          </p>
-          <p className="text-sm text-outline">
-            Payment ID: {paymentId}
-          </p>
-        </div>
-      </main>
-    );
+    return <SuccessScreen name={name} email={email} amount={AMOUNT_RUPEES} paymentId={paymentId} />;
   }
 
   // RECEIPT FORM (after successful payment)
@@ -369,5 +353,66 @@ export default function Home() {
         <a className="bg-hope-amber text-white font-label-caps text-[12px] py-3 px-6 uppercase tracking-wider font-bold" href="#donate">Provide Help</a>
       </div>
     </>
+  );
+}
+
+function SuccessScreen({ name, email, amount, paymentId }: { name: string; email: string; amount: string; paymentId: string }) {
+  const REDIRECT_URL = 'https://academicseva.org';
+  const REDIRECT_SECONDS = 12;
+
+  const [countdown, setCountdown] = useState(REDIRECT_SECONDS);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          if (mountedRef.current) window.location.href = REDIRECT_URL;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      mountedRef.current = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  const redirectNow = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    window.location.href = REDIRECT_URL;
+  };
+
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
+      <div className="text-center max-w-md">
+        <span className="material-symbols-outlined text-hope-amber text-6xl mb-6">favorite</span>
+        <h1 className="font-headline-lg text-headline-lg text-slate-deep mb-4 leading-tight">
+          Thank You{name.trim() ? `, ${name.trim().split(' ')[0]}` : ''}!
+        </h1>
+        <p className="font-body-md text-body-md text-on-surface-variant mb-6">
+          Your contribution of {amount} will directly help a student in need.
+          {email.trim() && <> A receipt has been sent to <strong>{email}</strong>.</>}
+        </p>
+        <p className="font-body-md text-body-md text-outline mb-8">
+          Payment ID: {paymentId}
+        </p>
+        <div className="flex flex-col items-center gap-4">
+          <button
+            onClick={redirectNow}
+            className="bg-hope-amber text-white font-label-caps text-label-caps py-3 px-8 rounded-lg hover:brightness-110 transition-all cursor-pointer"
+          >
+            Go to Academic Seva
+          </button>
+          <p className="font-body-md text-[13px] text-on-surface-variant">
+            Auto-redirecting in {countdown}s...
+          </p>
+        </div>
+      </div>
+    </main>
   );
 }
