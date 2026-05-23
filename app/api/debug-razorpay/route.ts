@@ -4,46 +4,41 @@ import Razorpay from 'razorpay';
 export async function GET() {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  const publicKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  const senderEmail = process.env.SENDER_EMAIL;
-  const resendKey = process.env.RESEND_API_KEY;
 
-  const diagnostics: Record<string, unknown> = {
-    envVars: {
-      RAZORPAY_KEY_ID: keyId ? `${keyId.slice(0, 8)}...${keyId.slice(-4)}` : 'NOT SET',
-      RAZORPAY_KEY_SECRET: keySecret ? `${keySecret.slice(0, 4)}...${keySecret.slice(-4)}` : 'NOT SET',
-      NEXT_PUBLIC_RAZORPAY_KEY_ID: publicKeyId ? `${publicKeyId.slice(0, 8)}...${publicKeyId.slice(-4)}` : 'NOT SET',
-      SENDER_EMAIL: senderEmail || 'NOT SET',
-      RESEND_API_KEY: resendKey ? `${resendKey.slice(0, 6)}...${resendKey.slice(-4)}` : 'NOT SET',
-    },
-    keyMatch: false,
-    razorpayTest: null,
-    error: null,
+  const result: Record<string, unknown> = {
+    keySet: !!keyId && !!keySecret,
+    keyIdPrefix: keyId ? keyId.slice(0, 12) : null,
+    keySecretLength: keySecret ? keySecret.length : null,
   };
 
-  diagnostics.keyMatch = keyId === publicKeyId;
-
   if (!keyId || !keySecret) {
-    diagnostics.error = 'RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET is not set';
-    return NextResponse.json(diagnostics);
+    result.error = 'Keys not set in env';
+    return NextResponse.json(result);
   }
 
+  // Test via Razorpay SDK
   try {
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
-    const order = await razorpay.orders.create({
-      amount: 100,
-      currency: 'INR',
-      receipt: `debug_${Date.now()}`,
-    });
-    diagnostics.razorpayTest = { success: true, orderId: order.id };
+    const order = await razorpay.orders.create({ amount: 100, currency: 'INR', receipt: `sdk_${Date.now()}` });
+    result.sdkTest = { ok: true, orderId: order.id };
   } catch (err: unknown) {
-    const razorpayErr = err as { statusCode?: number; error?: Record<string, unknown> };
-    diagnostics.razorpayTest = {
-      success: false,
-      statusCode: razorpayErr?.statusCode || null,
-      error: razorpayErr?.error || String(err),
-    };
+    const e = err as { statusCode?: number; error?: { description?: string; code?: string } };
+    result.sdkTest = { ok: false, statusCode: e?.statusCode, description: e?.error?.description, code: e?.error?.code };
   }
 
-  return NextResponse.json(diagnostics);
+  // Test via raw fetch
+  try {
+    const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const res = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${auth}` },
+      body: JSON.stringify({ amount: 100, currency: 'INR', receipt: `fetch_${Date.now()}` }),
+    });
+    const body = await res.json();
+    result.rawFetchTest = { status: res.status, ok: res.ok, body };
+  } catch (err: unknown) {
+    result.rawFetchTest = { error: String(err) };
+  }
+
+  return NextResponse.json(result);
 }
