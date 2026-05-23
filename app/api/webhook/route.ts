@@ -32,10 +32,17 @@ export async function POST(request: Request) {
     // Handle payment.captured event
     if (event.event === 'payment.captured') {
       const payment = event.payload.payment.entity;
-      const email = payment.notes?.email;
+      const notes = payment.notes || {};
+      const email = notes.email;
 
       if (email) {
-        await sendConfirmationEmail(email, payment.id, payment.amount);
+        await sendConfirmationEmail(
+          email,
+          payment.id,
+          notes.taxExempt === 'true' || payment.amount > 0,
+          notes.name || undefined,
+          notes.pan || undefined
+        );
       }
     }
 

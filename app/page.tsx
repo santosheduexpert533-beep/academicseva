@@ -31,14 +31,25 @@ interface RazorpayResponse {
   razorpay_signature: string;
 }
 
+const AMOUNT_PAISE = Number(process.env.NEXT_PUBLIC_DONATION_AMOUNT) || 100;
+const AMOUNT_RUPEES = `₹${(AMOUNT_PAISE / 100).toFixed(0)}`;
+
 export default function Home() {
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [pan, setPan] = useState('');
   const [taxExempt, setTaxExempt] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'loading' | 'processing-payment' | 'receipt' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'form' | 'loading' | 'processing-payment' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [paymentId, setPaymentId] = useState('');
 
-  const handleDonateClick = async () => {
+  const handleDonateClick = () => {
+    setErrorMessage('');
+    setStatus('form');
+  };
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setStatus('loading');
     setErrorMessage('');
 
@@ -46,7 +57,14 @@ export default function Home() {
       const orderResponse = await fetch('/api/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: 19900, currency: 'INR', email: '' }),
+        body: JSON.stringify({
+          amount: AMOUNT_PAISE,
+          currency: 'INR',
+          email: email.trim(),
+          name: name.trim(),
+          pan: pan.trim(),
+          taxExempt,
+        }),
       });
 
       if (!orderResponse.ok) throw new Error('Failed to create order');
@@ -54,54 +72,46 @@ export default function Home() {
 
       const rzp = new window.Razorpay({
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
-        amount: 19900,
+        amount: AMOUNT_PAISE,
         currency: 'INR',
         name: 'Academic Seva',
         description: 'Urgent Student Needs — Donation',
         order_id: orderId,
-        handler: (response: RazorpayResponse) => {
+        handler: async (response: RazorpayResponse) => {
           setPaymentId(response.razorpay_payment_id);
-          setStatus('receipt');
+          setStatus('processing-payment');
+
+          try {
+            await fetch('/api/verify-payment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                email: email.trim() || '',
+                taxExempt,
+                name: name.trim() || '',
+                pan: pan.trim() || '',
+              }),
+            });
+          } catch {
+            // email sending may fail but payment is done
+          }
+
+          setStatus('success');
         },
         theme: { color: '#D97706' },
       });
 
       rzp.on('payment.failed', () => {
         setErrorMessage('Payment was cancelled or failed. Please try again.');
-        setStatus('error');
+        setStatus('form');
       });
 
       rzp.open();
-      setStatus('idle');
     } catch {
       setErrorMessage('Something went wrong. Please try again.');
-      setStatus('error');
+      setStatus('form');
     }
-  };
-
-  const handleReceiptSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatus('processing-payment');
-
-    try {
-      await fetch('/api/verify-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          razorpay_payment_id: paymentId,
-          email: email.trim() || '',
-          taxExempt,
-        }),
-      });
-    } catch {
-      // email sending may fail but payment is done
-    }
-
-    setStatus('success');
-  };
-
-  const skipReceipt = () => {
-    setStatus('success');
   };
 
   // SUCCESS SCREEN
@@ -111,10 +121,10 @@ export default function Home() {
         <div className="text-center max-w-md">
           <span className="material-symbols-outlined text-hope-amber text-6xl mb-6">favorite</span>
           <h1 className="font-headline-lg text-headline-lg text-slate-deep mb-4 leading-tight">
-            Thank You for Your Kindness
+            Thank You{name.trim() ? `, ${name.trim().split(' ')[0]}` : ''}!
           </h1>
           <p className="font-body-md text-body-md text-on-surface-variant mb-6">
-            Your contribution of ₹199 will directly help a student in need.
+            Your contribution of {AMOUNT_RUPEES} will directly help a student in need.
             {email.trim() && <> A receipt has been sent to <strong>{email}</strong>.</>}
           </p>
           <p className="text-sm text-outline">
@@ -125,26 +135,34 @@ export default function Home() {
     );
   }
 
-  // RECEIPT FORM (after successful payment)
-  if (status === 'receipt' || status === 'processing-payment') {
+  // DONOR INFO FORM (shown before Razorpay checkout)
+  if (status === 'form' || status === 'loading') {
     return (
       <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
         <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-xl border border-outline-variant">
-          <span className="material-symbols-outlined text-hope-amber text-4xl mb-4 block">check_circle</span>
-          <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Payment Successful!</h2>
+          <span className="material-symbols-outlined text-hope-amber text-4xl mb-4 block">favorite</span>
+          <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Complete Your Donation</h2>
           <p className="font-body-md text-body-md text-on-surface-variant mb-6">
-            Want a receipt? Enter your email below. It&apos;s optional.
+            You&apos;re about to donate <strong>{AMOUNT_RUPEES}</strong>. Fill in your details to proceed.
           </p>
-          <form onSubmit={handleReceiptSubmit}>
+          <form onSubmit={handleFormSubmit}>
+            <input
+              type="text"
+              placeholder="Your full name *"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-4"
+              autoFocus
+            />
             <input
               type="email"
               placeholder="Email for receipt (optional)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-4"
-              autoFocus
             />
-            <label className="flex items-center gap-3 mb-6 cursor-pointer">
+            <label className="flex items-center gap-3 mb-4 cursor-pointer">
               <input
                 type="checkbox"
                 checked={taxExempt}
@@ -155,22 +173,34 @@ export default function Home() {
                 I need tax exemption receipt (80G)
               </span>
             </label>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={skipReceipt}
-                className="flex-1 py-3 px-4 border border-outline-variant text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer"
-              >
-                Skip
-              </button>
-              <button
-                type="submit"
-                disabled={status === 'processing-payment'}
-                className="flex-1 py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {status === 'processing-payment' ? 'Sending...' : 'Get Receipt'}
-              </button>
-            </div>
+            {taxExempt && (
+              <input
+                type="text"
+                placeholder="PAN (required for 80G certificate)"
+                value={pan}
+                onChange={(e) => setPan(e.target.value.toUpperCase())}
+                maxLength={10}
+                className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-4"
+              />
+            )}
+            {errorMessage && (
+              <p className="text-red-600 text-sm mb-4">{errorMessage}</p>
+            )}
+            <button
+              type="submit"
+              disabled={status === 'loading'}
+              className="w-full py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {status === 'loading' ? 'Processing...' : `Donate ${AMOUNT_RUPEES}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatus('idle')}
+              disabled={status === 'loading'}
+              className="w-full py-2 mt-2 text-sm text-outline hover:text-on-surface transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
           </form>
         </div>
       </main>
@@ -221,8 +251,8 @@ export default function Home() {
                   <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Education</span>
                   <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Student Tuition &amp; Books</h3>
                   <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">For thousands of children, a pencil isn&apos;t a choice; it&apos;s daily survival. When you can&apos;t afford books, dreaming of the future is impossible. Your ₹199 provides essential learning materials.</p>
-                  <button onClick={handleDonateClick} disabled={status === 'loading'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                    {status === 'loading' ? 'Processing...' : 'Support This Child'}
+                  <button onClick={handleDonateClick} disabled={status !== 'idle'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    Support This Child
                   </button>
                 </div>
               </div>
@@ -233,8 +263,8 @@ export default function Home() {
                   <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Survival</span>
                   <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Family Nutrition Kit</h3>
                   <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Hunger doesn&apos;t wait. Provide a vulnerable family with the basic nutrition they need to survive, ensuring children have the energy to learn and grow. Just ₹199 makes a profound difference.</p>
-                  <button onClick={handleDonateClick} disabled={status === 'loading'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                    {status === 'loading' ? 'Processing...' : 'Provide Help'}
+                  <button onClick={handleDonateClick} disabled={status !== 'idle'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    Provide Help
                   </button>
                 </div>
               </div>
@@ -245,8 +275,8 @@ export default function Home() {
                   <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Access</span>
                   <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Digital Learning Access</h3>
                   <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Bridge the widening digital divide. Give a student the crucial tools to connect to modern education and build a brighter future. ₹199 unlocks digital access for those left behind.</p>
-                  <button onClick={handleDonateClick} disabled={status === 'loading'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                    {status === 'loading' ? 'Processing...' : 'Support This Child'}
+                  <button onClick={handleDonateClick} disabled={status !== 'idle'} className="block text-center w-full bg-slate-deep text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:bg-tertiary cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    Support This Child
                   </button>
                 </div>
               </div>
@@ -256,8 +286,8 @@ export default function Home() {
                 <span className="text-error-subdued font-label-caps text-label-caps mb-2 block uppercase tracking-widest font-bold">Urgent Need: Wellbeing</span>
                 <h3 className="font-headline-lg text-2xl text-slate-deep mb-3">Health &amp; Hygiene Support</h3>
                 <p className="font-body-md text-body-md text-on-surface-variant mb-6 flex-grow">Basic hygiene and medical care are often out of reach. Protect a child&apos;s health and dignity with a vital hygiene kit. Every ₹199 ensures a safer, healthier tomorrow.</p>
-                <button onClick={handleDonateClick} disabled={status === 'loading'} className="block text-center w-full bg-hope-amber text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:brightness-110 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                  {status === 'loading' ? 'Processing...' : 'Provide Help'}
+                <button onClick={handleDonateClick} disabled={status !== 'idle'} className="block text-center w-full bg-hope-amber text-white font-label-caps text-label-caps py-4 px-6 tracking-widest uppercase transition-all duration-300 hover:brightness-110 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                  Provide Help
                 </button>
               </div>
             </div>
@@ -287,14 +317,11 @@ export default function Home() {
               <p className="font-body-md text-body-md text-on-surface-variant mb-6">₹199 is all it takes to bridge the gap between despair and a dream.</p>
               <button
                 onClick={handleDonateClick}
-                disabled={status === 'loading'}
+                disabled={status !== 'idle'}
                 className="w-full bg-hope-amber text-white font-label-caps text-label-caps py-5 px-gutter tracking-widest uppercase transition-all duration-300 hover:brightness-110 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {status === 'loading' ? 'Processing...' : 'Support This Child Now'}
+                Support This Child Now
               </button>
-              {status === 'error' && (
-                <p className="text-error text-sm mt-3">{errorMessage}</p>
-              )}
               <p className="mt-4 font-label-caps text-[10px] text-outline uppercase tracking-tighter">Secure Payment via Razorpay</p>
             </div>
           </div>
