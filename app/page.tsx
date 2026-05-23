@@ -31,7 +31,7 @@ interface RazorpayResponse {
   razorpay_signature: string;
 }
 
-const AMOUNT_PAISE = Number(process.env.NEXT_PUBLIC_DONATION_AMOUNT) || 100;
+const AMOUNT_PAISE = Number(process.env.NEXT_PUBLIC_DONATION_AMOUNT) || 19900;
 const AMOUNT_RUPEES = `₹${(AMOUNT_PAISE / 100).toFixed(0)}`;
 
 export default function Home() {
@@ -39,17 +39,11 @@ export default function Home() {
   const [name, setName] = useState('');
   const [pan, setPan] = useState('');
   const [taxExempt, setTaxExempt] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'form' | 'loading' | 'processing-payment' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'receipt' | 'processing-payment' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [paymentId, setPaymentId] = useState('');
 
-  const handleDonateClick = () => {
-    setErrorMessage('');
-    setStatus('form');
-  };
-
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleDonateClick = async () => {
     setStatus('loading');
     setErrorMessage('');
 
@@ -60,14 +54,15 @@ export default function Home() {
         body: JSON.stringify({
           amount: AMOUNT_PAISE,
           currency: 'INR',
-          email: email.trim(),
-          name: name.trim(),
-          pan: pan.trim(),
-          taxExempt,
+          email: '',
+          name: '',
+          pan: '',
+          taxExempt: false,
         }),
       });
 
-      if (!orderResponse.ok) throw new Error('Failed to create order');
+      const errorData = !orderResponse.ok ? await orderResponse.json().catch(() => null) : null;
+      if (!orderResponse.ok) throw new Error(errorData?.error || 'Failed to create order');
       const { orderId } = await orderResponse.json();
 
       const rzp = new window.Razorpay({
@@ -77,41 +72,51 @@ export default function Home() {
         name: 'Academic Seva',
         description: 'Urgent Student Needs — Donation',
         order_id: orderId,
-        handler: async (response: RazorpayResponse) => {
+        handler: (response: RazorpayResponse) => {
           setPaymentId(response.razorpay_payment_id);
-          setStatus('processing-payment');
-
-          try {
-            await fetch('/api/verify-payment', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                razorpay_payment_id: response.razorpay_payment_id,
-                email: email.trim() || '',
-                taxExempt,
-                name: name.trim() || '',
-                pan: pan.trim() || '',
-              }),
-            });
-          } catch {
-            // email sending may fail but payment is done
-          }
-
-          setStatus('success');
+          setStatus('receipt');
         },
         theme: { color: '#D97706' },
       });
 
       rzp.on('payment.failed', () => {
         setErrorMessage('Payment was cancelled or failed. Please try again.');
-        setStatus('form');
+        setStatus('error');
       });
 
       rzp.open();
-    } catch {
-      setErrorMessage('Something went wrong. Please try again.');
-      setStatus('form');
+      setStatus('idle');
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      setStatus('error');
     }
+  };
+
+  const handleReceiptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('processing-payment');
+
+    try {
+      await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_payment_id: paymentId,
+          email: email.trim() || '',
+          taxExempt,
+          name: name.trim() || '',
+          pan: pan.trim() || '',
+        }),
+      });
+    } catch {
+      // email sending may fail but payment is done
+    }
+
+    setStatus('success');
+  };
+
+  const skipReceipt = () => {
+    setStatus('success');
   };
 
   // SUCCESS SCREEN
@@ -135,23 +140,22 @@ export default function Home() {
     );
   }
 
-  // DONOR INFO FORM (shown before Razorpay checkout)
-  if (status === 'form' || status === 'loading') {
+  // RECEIPT FORM (after successful payment)
+  if (status === 'receipt' || status === 'processing-payment') {
     return (
       <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
         <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-xl border border-outline-variant">
-          <span className="material-symbols-outlined text-hope-amber text-4xl mb-4 block">favorite</span>
-          <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Complete Your Donation</h2>
+          <span className="material-symbols-outlined text-hope-amber text-4xl mb-4 block">check_circle</span>
+          <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Payment Successful!</h2>
           <p className="font-body-md text-body-md text-on-surface-variant mb-6">
-            You&apos;re about to donate <strong>{AMOUNT_RUPEES}</strong>. Fill in your details to proceed.
+            Want a receipt? Enter your details below.
           </p>
-          <form onSubmit={handleFormSubmit}>
+          <form onSubmit={handleReceiptSubmit}>
             <input
               type="text"
-              placeholder="Your full name *"
+              placeholder="Your full name (required for 80G)"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              required
               className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-4"
               autoFocus
             />
@@ -183,25 +187,42 @@ export default function Home() {
                 className="w-full px-4 py-3.5 rounded-lg border border-outline-variant focus:border-hope-amber focus:ring-2 focus:ring-hope-amber/20 outline-none text-on-surface placeholder:text-outline font-body-md mb-4"
               />
             )}
-            {errorMessage && (
-              <p className="text-red-600 text-sm mb-4">{errorMessage}</p>
-            )}
-            <button
-              type="submit"
-              disabled={status === 'loading'}
-              className="w-full py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {status === 'loading' ? 'Processing...' : `Donate ${AMOUNT_RUPEES}`}
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatus('idle')}
-              disabled={status === 'loading'}
-              className="w-full py-2 mt-2 text-sm text-outline hover:text-on-surface transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={skipReceipt}
+                className="flex-1 py-3 px-4 border border-outline-variant text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer"
+              >
+                Skip
+              </button>
+              <button
+                type="submit"
+                disabled={status === 'processing-payment'}
+                className="flex-1 py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {status === 'processing-payment' ? 'Sending...' : 'Get Receipt'}
+              </button>
+            </div>
           </form>
+        </div>
+      </main>
+    );
+  }
+
+  // ERROR SCREEN
+  if (status === 'error') {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-surface-warm px-gutter">
+        <div className="bg-white rounded-xl p-8 max-w-md w-full shadow-xl border border-outline-variant text-center">
+          <span className="material-symbols-outlined text-red-500 text-4xl mb-4 block">error</span>
+          <h2 className="font-headline-lg text-headline-lg text-slate-deep mb-2">Something Went Wrong</h2>
+          <p className="font-body-md text-body-md text-on-surface-variant mb-6">{errorMessage}</p>
+          <button
+            onClick={() => setStatus('idle')}
+            className="w-full py-3 px-4 bg-hope-amber text-white font-label-caps text-label-caps uppercase tracking-wider rounded-lg hover:brightness-110 transition-all cursor-pointer"
+          >
+            Try Again
+          </button>
         </div>
       </main>
     );
