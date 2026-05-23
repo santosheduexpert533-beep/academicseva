@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
 import { Resend } from 'resend';
+import { generate80GCertificate, generateCertificateNumber } from '@/lib/certificate';
 
 export async function GET() {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -25,24 +26,36 @@ export async function GET() {
     }
   }
 
-  // --- Resend test (send a test email to the configured sender) ---
+  // --- Full email test (with 80G certificate PDF) ---
   if (resendApiKey && senderEmail) {
     try {
+      const certNumber = generateCertificateNumber('test_debug_001');
+      const pdfBytes = await generate80GCertificate({
+        donorName: 'TEST DONOR',
+        donorPan: 'AAAAA0000A',
+        amount: 1,
+        paymentId: 'pay_debug_test',
+        certificateNumber: certNumber,
+      });
+      result.pdfGeneration = { ok: true, size: pdfBytes.length };
+
       const resend = new Resend(resendApiKey);
       const emailRes = await resend.emails.send({
         from: senderEmail,
         to: senderEmail,
-        subject: 'Debug test — Academic Seva',
-        html: '<p>If you see this, Resend is working.</p>',
+        subject: 'Debug test — with 80G certificate — Academic Seva',
+        html: `<p>This is a test email with the 80G PDF attached.</p><p>Certificate: ${certNumber}</p>`,
+        attachments: [{ filename: `80G_Certificate_${certNumber.replace(/\//g, '_')}.pdf`, content: Buffer.from(pdfBytes) }],
       });
       const emailId = (emailRes as { data?: { id?: string } })?.data?.id || 'unknown';
-      result.resend = { ...result.resend as object, testSend: { ok: true, id: emailId } };
+      result.resend = { ...result.resend as object, fullEmailTest: { ok: true, id: emailId } };
     } catch (err: unknown) {
       const e = err as { statusCode?: number; message?: string; error?: unknown };
-      result.resend = { ...result.resend as object, testSend: { ok: false, error: e?.message || String(err) } };
+      const msg = e?.message || (typeof e === 'object' ? JSON.stringify(e) : String(err));
+      result.resend = { ...result.resend as object, fullEmailTest: { ok: false, error: msg } };
     }
   } else {
-    result.resend = { ...result.resend as object, testSend: { ok: false, error: 'RESEND_API_KEY or SENDER_EMAIL not set' } };
+    result.resend = { ...result.resend as object, fullEmailTest: { ok: false, error: 'RESEND_API_KEY or SENDER_EMAIL not set' } };
   }
 
   return NextResponse.json(result);
