@@ -1,5 +1,6 @@
 import getResend from './resend';
-import { generate80GCertificate, generateCertificateNumber } from './certificate';
+import { generateCertificateNumber } from './certificate';
+import { encryptCertData } from './token';
 
 const NGO_NAME = process.env.NGO_NAME || 'Academic Expert Seva Charitable Trust';
 const NGO_80G_REG = process.env.NGO_80G_REG || 'AALTA7396J';
@@ -16,9 +17,23 @@ function emailBody(params: {
   certNumber?: string;
   donorPan?: string;
   taxExempt: boolean;
+  certLink?: string;
 }): string {
-  const { donorName, donationAmount, paymentId, to, certNumber, donorPan, taxExempt } = params;
+  const { donorName, donationAmount, paymentId, to, certNumber, donorPan, taxExempt, certLink } = params;
   const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const expiryNotice = certLink ? `
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:16px 20px;margin:24px 0;">
+      <tr>
+        <td style="font-family:Arial,sans-serif;">
+          <div style="font-size:14px;font-weight:700;color:#92400E;margin-bottom:4px;">⚠️ This link will expire in 30 minutes</div>
+          <div style="font-size:12px;color:#92400E;line-height:1.4;">
+            Please view and download your certificate now. After 30 minutes, the link will no longer work.
+          </div>
+        </td>
+      </tr>
+    </table>
+  ` : '';
 
   const certSection = taxExempt && certNumber ? `
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F4F2ED;border-radius:8px;border:1px solid #E2E8F0;margin:24px 0;overflow:hidden;">
@@ -145,6 +160,18 @@ function emailBody(params: {
         </td>
       </tr>
     </table>
+
+    ${expiryNotice}
+
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:20px 0;">
+      <tr>
+        <td align="center">
+          <a href="${certLink}" style="display:inline-block;font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#ffffff;background:#D97706;padding:16px 40px;border-radius:8px;text-decoration:none;">
+            VIEW YOUR CERTIFICATE ↗
+          </a>
+        </td>
+      </tr>
+    </table>
   ` : '';
 
   return `
@@ -233,22 +260,21 @@ export async function sendConfirmationEmail(
   const resend = getResend();
   const donationAmount = amount || 1;
 
-  let attachment;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://donation.academicseva.org';
   let certNumber: string | undefined;
+  let certLink: string | undefined;
 
   if (taxExempt && donorName) {
     certNumber = generateCertificateNumber(paymentId);
-    const pdfBytes = await generate80GCertificate({
-      donorName,
-      donorPan: donorPan || '',
-      amount: donationAmount,
+    const token = encryptCertData({
+      name: donorName,
+      pan: donorPan || '',
       paymentId,
-      certificateNumber: certNumber,
+      amount: donationAmount,
+      certNumber,
+      email: to,
     });
-    attachment = {
-      filename: `80G_Certificate_${certNumber.replace(/\//g, '_')}.pdf`,
-      content: Buffer.from(pdfBytes),
-    };
+    certLink = `${siteUrl}/certificate/${token}`;
   }
 
   await resend.emails.send({
@@ -257,7 +283,6 @@ export async function sendConfirmationEmail(
     subject: taxExempt
       ? `Your 80G Certificate — ${certNumber || ''} — Academic Seva`
       : 'Thank You for Your Donation — Academic Seva',
-    attachments: attachment ? [attachment] : undefined,
     html: emailBody({
       donorName,
       donationAmount,
@@ -266,6 +291,7 @@ export async function sendConfirmationEmail(
       certNumber,
       donorPan,
       taxExempt,
+      certLink,
     }),
   });
 }

@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 
 const NGO_NAME = process.env.NGO_NAME || 'Academic Seva';
 const NGO_ADDRESS = process.env.NGO_ADDRESS || '[Registered Office Address]';
@@ -301,6 +301,21 @@ export async function generate80GCertificate(params: {
       color: gray,
     }
   );
+
+  // "ACADEMIC SEVA" watermark overlay
+  const wmText = 'ACADEMIC SEVA';
+  const wmColor = rgb(0.88, 0.88, 0.88);
+  const wmSize = 42;
+  for (let i = 0; i < 8; i++) {
+    page.drawText(wmText, {
+      x: 20 + i * 78,
+      y: 100 + i * 90,
+      size: wmSize,
+      font: fontBold,
+      color: wmColor,
+      rotate: degrees(-45),
+    });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return pdfBytes;
