@@ -19,8 +19,11 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ orderId: order.id });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+  } catch (error: unknown) {
+    const message =
+      (error as { error?: { description?: string } })?.error?.description ||
+      (error as Error)?.message ||
+      String(error);
     console.error('Error creating order:', message);
     return NextResponse.json(
       { error: message },
